@@ -7,15 +7,12 @@ const Razorpay = require('razorpay');
 const app = express();
 app.use(express.json());
 
-// Connect MongoDB
+// ===== Connect MongoDB =====
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error(err));
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch(err => console.error('❌ MongoDB error:', err));
 
-/**
- * WhatsApp Cloud API Webhook Verification
- * Meta sends GET request here when setting up webhook
- */
+// ===== WhatsApp Webhook Verification =====
 app.get('/webhook/whatsapp', (req, res) => {
   const verifyToken = process.env.VERIFY_TOKEN;
   const mode = req.query['hub.mode'];
@@ -24,25 +21,81 @@ app.get('/webhook/whatsapp', (req, res) => {
 
   if (mode && token) {
     if (mode === 'subscribe' && token === verifyToken) {
-      console.log('WEBHOOK VERIFIED');
+      console.log('✅ WEBHOOK VERIFIED');
       res.status(200).send(challenge);
     } else {
       res.sendStatus(403);
     }
+  } else {
+    res.sendStatus(400);
   }
 });
 
-// WhatsApp incoming messages
-app.post('/webhook/whatsapp', (req, res) => {
-  console.log('Incoming message:', JSON.stringify(req.body, null, 2));
+// ===== WhatsApp Incoming Messages =====
+app.post('/webhook/whatsapp', async (req, res) => {
+  console.log('📩 Incoming message:', JSON.stringify(req.body, null, 2));
+
+  const entry = req.body.entry?.[0];
+  const changes = entry?.changes?.[0];
+  const value = changes?.value;
+  const message = value?.messages?.[0];
+
+  if (message) {
+    const from = message.from; // User's WhatsApp number
+
+    try {
+      // Send interactive reply buttons
+      await axios.post(
+        `https://graph.facebook.com/v20.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+        {
+          messaging_product: "whatsapp",
+          to: from,
+          type: "interactive",
+          interactive: {
+            type: "button",
+            body: {
+              text: "👋 Welcome to Wrinkl Laundry! What would you like to do?"
+            },
+            action: {
+              buttons: [
+                {
+                  type: "reply",
+                  reply: { id: "order_laundry", title: "🧺 Place Order" }
+                },
+                {
+                  type: "reply",
+                  reply: { id: "track_order", title: "📍 Track Order" }
+                },
+                {
+                  type: "reply",
+                  reply: { id: "contact_support", title: "💬 Contact Support" }
+                }
+              ]
+            }
+          }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      console.log("✅ Buttons sent successfully");
+    } catch (err) {
+      console.error("❌ Error sending buttons:", err.response?.data || err.message);
+    }
+  }
+
   res.sendStatus(200);
 });
 
-// Razorpay webhook (to verify payments)
+// ===== Razorpay Webhook =====
 app.post('/webhook/razorpay', (req, res) => {
-  console.log('Razorpay webhook data:', req.body);
+  console.log('💳 Razorpay webhook data:', req.body);
   res.sendStatus(200);
 });
 
+// ===== Start Server =====
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
